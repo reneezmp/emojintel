@@ -13,7 +13,13 @@ final class Coordinator {
 
     /// The target captured at trigger time. The user may move focus while the pill is up;
     /// we always replace into the element we actually read from.
-    private var target: (element: AXUIElement, range: CFRange, caret: Int)?
+    /// Marker-based targets (Mail, Safari rich text) have no writable range, so they
+    /// always replace by keystrokes.
+    private enum Target {
+        case ranged(AXUIElement, CFRange, caret: Int)
+        case markers(AXUIElement, wordLength: Int)
+    }
+    private var target: Target?
     private var hits: [EmojiHit] = []
 
     var onStateChange: (() -> Void)?
@@ -55,11 +61,29 @@ final class Coordinator {
         guard let (element, role, route) = focusedTextElement() else {
             Diagnostics.log("[\(appName)] no focused element"); return
         }
-        guard let ctx = readTextContext(element) else {
-            Diagnostics.log("[\(appName)] \(role) via \(route) — no readable text"); return
-        }
-        guard let (word, range) = wordAtCaret(ctx) else {
-            Diagnostics.log("[\(appName)] \(role) — no word at caret"); return
+
+        let word: String
+        let rect: CGRect?
+        let newTarget: Target
+        let path: String
+
+        if let (w, r) = AXMarkers.wordAtCaret(element), AXMarkers.isMarkerBased(element) {
+            // WebKit text markers: Mail's compose area, Safari rich text.
+            word = w
+            rect = r
+            newTarget = .markers(element, wordLength: w.utf16.count)
+            path = "markers"
+        } else {
+            guard let ctx = readTextContext(element) else {
+                Diagnostics.log("[\(appName)] \(role) via \(route) — no readable text"); return
+            }
+            guard let (w, r) = wordAtCaret(ctx) else {
+                Diagnostics.log("[\(appName)] \(role) — no word at caret"); return
+            }
+            word = w
+            rect = wordRectInCocoaSpace(element, range: r)
+            newTarget = .ranged(element, r, caret: ctx.windowStart + ctx.caretInWindow)
+            path = ctx.readPath
         }
 
         let suggestions = index.suggestions(for: word, limit: 3)
@@ -67,13 +91,12 @@ final class Coordinator {
             Diagnostics.log("[\(appName)] \(role) — \"\(word)\" → no suggestions"); return
         }
 
-        let rect = wordRectInCocoaSpace(element, range: range)
-        Diagnostics.log("[\(appName)] \(role) via \(route) — \"\(word)\" → "
+        Diagnostics.log("[\(appName)] \(role) via \(route)/\(path) — \"\(word)\" → "
             + suggestions.map(\.emoji).joined(separator: " ")
-            + (rect == nil ? "  (no rect: mouse fallback)" : ""))
+            + (rect == nil ? "  (no rect: field/mouse fallback)" : ""))
 
         hits = suggestions
-        target = (element, range, ctx.windowStart + ctx.caretInWindow)
+        target = newTarget
         panel.present(hits: suggestions, anchor: rect,
                       field: rect == nil ? elementRectInCocoaSpace(element) : nil)
         trigger.pillIsOpen = true
@@ -92,14 +115,19 @@ final class Coordinator {
     }
 
     private func commit() {
-        guard trigger.pillIsOpen,
-              let (element, range, caret) = target,
+        guard trigger.pillIsOpen, let t = target,
               hits.indices.contains(panel.selectedIndex)
         else { dismiss(); return }
 
         let emoji = hits[panel.selectedIndex].emoji
         dismiss()
-        let tier = WordReplacer.replace(element: element, range: range, caret: caret, with: emoji)
+        let tier: String
+        switch t {
+        case let .ranged(element, range, caret):
+            tier = WordReplacer.replace(element: element, range: range, caret: caret, with: emoji)
+        case let .markers(_, wordLength):
+            tier = WordReplacer.replaceByTyping(deleting: wordLength, with: emoji)
+        }
         Diagnostics.log("    → replaced with \(emoji) via \(tier)")
     }
 

@@ -105,6 +105,8 @@ func enableManualAccessibility(for pid: pid_t, bundleID: String?) {
     guard let id = bundleID, !manualAccessDone.contains(pid) else { return }
     let electronish = ["com.google.Chrome", "com.microsoft.VSCode", "com.microsoft.Edge",
                        "com.brave.Browser", "com.tinyspeck.slackmacgap", "com.hnc.Discord",
+                       "com.microsoft.edgemac", "com.microsoft.edgemac.Dev",
+                       "com.google.Chrome.canary", "org.chromium.Chromium",
                        "com.spotify.client", "com.figma.Desktop", "notion.id"]
     guard electronish.contains(id) || id.hasPrefix("com.electron") else { return }
     manualAccessDone.insert(pid)

@@ -59,6 +59,16 @@ enum WordReplacer {
         return !(now.location == range.location && now.length == range.length)
     }
 
+    /// Keystroke-only replacement, for targets with no writable range (WebKit text
+    /// markers). AXLeftWord gives the word *ending at* the caret, so backspaces land
+    /// exactly on it.
+    @discardableResult
+    static func replaceByTyping(deleting length: Int, with emoji: String) -> String {
+        for _ in 0..<length { postKey(kBackspace) }
+        postUnicode(emoji)
+        return "marker-backspace"
+    }
+
     // MARK: - Synthesized input
 
     private static let kRightArrow: CGKeyCode = 0x7C
