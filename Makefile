@@ -17,7 +17,7 @@ SHARED_SRC := $(wildcard Sources/Shared/*.swift)
 APP_SRC    := $(wildcard Sources/Emojintel/*.swift) $(SHARED_SRC)
 PROBE_SRC  := $(wildcard Sources/emojintel-probe/*.swift) $(SHARED_SRC)
 
-.PHONY: all probe app install uninstall index cert clean run-keys run-ax run-focus rank check
+.PHONY: all probe app install uninstall index cert clean run-keys run-ax run-focus run-markers rank check
 
 all: app
 
@@ -37,6 +37,9 @@ run-ax: probe
 
 run-focus: probe
 	./$(BUILD)/emojintel-probe focus
+
+run-markers: probe
+	./$(BUILD)/emojintel-probe markers
 
 rank: probe
 	./$(BUILD)/emojintel-probe rank

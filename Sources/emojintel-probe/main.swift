@@ -7,6 +7,9 @@ switch args.first {
 case "keys":
     KeysProbe.run()
 
+case "markers":
+    MarkerProbe.run()
+
 case "rank":
     RankProbe.run(words: Array(args.dropFirst()))
 
@@ -26,6 +29,7 @@ default:
 
       keys           log keyDown / flagsChanged; verify the fn and Right-⌘ triggers
       ax [--write]   dump the focused text element: role, value, range, word, bounds
+      markers        dump all AX attributes + the WebKit text-marker chain (for Mail)
       rank [words]   check the emoji index and ranking without launching the app
       focus          diagnose WHY focused-element lookup fails (prints exact AXErrors)
       env            report AppleFnUsageType, Secure Input, and Accessibility trust

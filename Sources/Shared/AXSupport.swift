@@ -289,3 +289,53 @@ func wordRectInCocoaSpace(_ element: AXUIElement, range: CFRange) -> CGRect? {
     return CGRect(x: quartz.origin.x, y: H - quartz.origin.y - quartz.height,
                   width: quartz.width, height: quartz.height)
 }
+
+// MARK: - Element frame (fallback anchor)
+
+func axPoint(_ el: AXUIElement, _ attr: CFString) -> CGPoint? {
+    guard let v = axCopy(el, attr), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+    let axv = v as! AXValue
+    guard AXValueGetType(axv) == .cgPoint else { return nil }
+    var p = CGPoint.zero
+    guard AXValueGetValue(axv, .cgPoint, &p) else { return nil }
+    return p
+}
+
+func axSize(_ el: AXUIElement, _ attr: CFString) -> CGSize? {
+    guard let v = axCopy(el, attr), CFGetTypeID(v) == AXValueGetTypeID() else { return nil }
+    let axv = v as! AXValue
+    guard AXValueGetType(axv) == .cgSize else { return nil }
+    var sz = CGSize.zero
+    guard AXValueGetValue(axv, .cgSize, &sz) else { return nil }
+    return sz
+}
+
+/// The text field's own frame in Cocoa coordinates. Used to anchor the pill when the app
+/// gives no usable caret rect (Electron), which is far better than falling back to
+/// wherever the mouse happens to be sitting.
+func elementRectInCocoaSpace(_ el: AXUIElement) -> CGRect? {
+    guard let p = axPoint(el, "AXPosition" as CFString),
+          let sz = axSize(el, "AXSize" as CFString),
+          sz.width > 1, sz.height > 1,
+          let primary = NSScreen.screens.first else { return nil }
+    let quartz = CGRect(origin: p, size: sz)
+    guard isUsableCaretRect(quartz) else { return nil }
+    let H = primary.frame.height
+    return CGRect(x: quartz.origin.x, y: H - quartz.origin.y - quartz.height,
+                  width: quartz.width, height: quartz.height)
+}
+
+/// Apps whose visible text area is a transcript, not the input line: AX reports a
+/// selection inside the scrollback, but typed characters go to the tty instead. Setting a
+/// selection there "succeeds" and then does nothing, so these must skip the AX write path
+/// entirely and replace by synthesized keystrokes.
+let terminalBundleIDs: Set<String> = [
+    "com.apple.Terminal", "com.googlecode.iterm2", "co.zeit.hyper",
+    "net.kovidgoyal.kitty", "com.github.wez.wezterm", "dev.warp.Warp-Stable",
+    "io.alacritty", "org.tabby",
+]
+
+func frontmostIsTerminal() -> Bool {
+    guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else { return false }
+    return terminalBundleIDs.contains(id)
+}

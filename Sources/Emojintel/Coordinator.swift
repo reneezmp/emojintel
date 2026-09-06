@@ -74,7 +74,8 @@ final class Coordinator {
 
         hits = suggestions
         target = (element, range, ctx.windowStart + ctx.caretInWindow)
-        panel.present(hits: suggestions, anchor: rect)
+        panel.present(hits: suggestions, anchor: rect,
+                      field: rect == nil ? elementRectInCocoaSpace(element) : nil)
         trigger.pillIsOpen = true
     }
 

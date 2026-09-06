@@ -12,12 +12,11 @@ import AppKit
 /// which breaks the single most important behaviour of the whole tool.
 final class SuggestionPanel: NSPanel {
 
-    // Sized against a 16pt text line: the first cut was 40pt tall, i.e. 2.5x the text
-    // it sits under, which read as enormous. These are the only numbers to touch if it
-    // still wants tuning — everything else lays out from them.
-    static let cellSize = NSSize(width: 32, height: 26)
-    static let chevronWidth: CGFloat = 22
-    static let cornerRadius: CGFloat = 7
+    // The only numbers to touch if this wants tuning; everything else lays out from
+    // them. History: 40pt (2.5x the 16pt text line — enormous), then 26pt, now 18pt.
+    static let cellSize = NSSize(width: 22, height: 18)
+    static let chevronWidth: CGFloat = 15
+    static let cornerRadius: CGFloat = 5
 
     private let contentContainer = SuggestionView()
     var onPick: ((Int) -> Void)?
@@ -56,7 +55,7 @@ final class SuggestionPanel: NSPanel {
 
     /// Shows the pill anchored under `wordRect` (Cocoa coords), or under the mouse when
     /// the app gave us no usable rect.
-    func present(hits: [EmojiHit], anchor wordRect: CGRect?) {
+    func present(hits: [EmojiHit], anchor wordRect: CGRect?, field fieldRect: CGRect? = nil) {
         guard !hits.isEmpty else { close(); return }
         contentContainer.hits = hits
         contentContainer.selected = 0
@@ -64,9 +63,14 @@ final class SuggestionPanel: NSPanel {
         let width = CGFloat(hits.count) * SuggestionPanel.cellSize.width + SuggestionPanel.chevronWidth
         let size = NSSize(width: width, height: SuggestionPanel.cellSize.height)
 
+        // Anchor preference: the word itself → the bottom-left of the text field →
+        // the mouse. Electron returns a degenerate caret rect, and falling straight to
+        // the mouse put the pill in the middle of the window, far from what you typed.
         var origin: NSPoint
         if let r = wordRect {
             origin = NSPoint(x: r.minX, y: r.minY - size.height - 4)
+        } else if let f = fieldRect {
+            origin = NSPoint(x: f.minX + 6, y: f.minY + 4)
         } else {
             let m = NSEvent.mouseLocation
             origin = NSPoint(x: m.x, y: m.y - size.height - 18)
@@ -130,22 +134,22 @@ private final class SuggestionView: NSView {
         for i in 1..<max(1, hits.count) where i != selected && i - 1 != selected {
             let x = CGFloat(i) * cw
             let line = NSBezierPath()
-            line.move(to: NSPoint(x: x, y: 5))
-            line.line(to: NSPoint(x: x, y: bounds.height - 5))
+            line.move(to: NSPoint(x: x, y: 3))
+            line.line(to: NSPoint(x: x, y: bounds.height - 3))
             line.lineWidth = 1
             line.stroke()
         }
         let chevX = CGFloat(hits.count) * cw
         if hits.count - 1 != selected {
             let line = NSBezierPath()
-            line.move(to: NSPoint(x: chevX, y: 5))
-            line.line(to: NSPoint(x: chevX, y: bounds.height - 5))
+            line.move(to: NSPoint(x: chevX, y: 3))
+            line.line(to: NSPoint(x: chevX, y: bounds.height - 3))
             line.lineWidth = 1
             line.stroke()
         }
 
         // Emoji
-        let font = NSFont.systemFont(ofSize: 16)
+        let font = NSFont.systemFont(ofSize: 12)
         for (i, hit) in hits.enumerated() {
             let s = NSAttributedString(string: hit.emoji, attributes: [.font: font])
             let sz = s.size()
@@ -155,7 +159,7 @@ private final class SuggestionView: NSView {
 
         // Chevron
         let chev = NSAttributedString(string: "⌄", attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ])
         let cs = chev.size()

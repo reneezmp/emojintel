@@ -16,7 +16,10 @@ enum WordReplacer {
     @discardableResult
     static func replace(element: AXUIElement, range: CFRange, caret: Int, with emoji: String) -> String {
 
-        if selectRangeVerified(element, range) {
+        // Terminals report a selection inside their scrollback and then send typed
+        // characters to the tty instead, so the AX path "succeeds" and changes nothing —
+        // the emoji lands beside the word rather than replacing it.
+        if !frontmostIsTerminal(), selectRangeVerified(element, range) {
             // Tier 1 — direct AX write into the verified selection.
             if AXUIElementSetAttributeValue(element, AXAttr.selectedText, emoji as CFString) == .success,
                verifyGone(element, range: range, emoji: emoji) {
