@@ -73,5 +73,11 @@ Sources/Emojintel/            the app (Phase 1)
 - **Sign with a stable identity, not ad-hoc.** `codesign --sign -` pins TCC to the
   binary's cdhash, so every rebuild silently revokes Accessibility with no re-prompt.
   `make cert` creates a self-signed "Emojintel Dev" identity once; the grant then survives
-  rebuilds.
+  rebuilds. Two non-obvious details, both verified in an isolated keychain:
+  `security import` fails MAC verification on a PKCS12 with an *empty* password, and the
+  certificate does **not** need to be trusted — codesign signs fine with an untrusted
+  self-signed identity and still produces an `identifier + certificate leaf` designated
+  requirement, which is exactly what makes the grant survive. So there is no
+  `add-trusted-cert` step. `security find-identity -v` will report 0 valid identities;
+  that is cosmetic, drop the `-v`.
 - Emoji data from [Emojibase](https://github.com/milesj/emojibase) (MIT), bundled offline.

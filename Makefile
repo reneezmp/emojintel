@@ -60,7 +60,7 @@ $(APPDIR): $(APP_SRC) Resources/emoji-index.json Resources/overrides.json Resour
 ## Install to the STABLE path. TCC keys on path as well as signature, so granting
 ## Accessibility to a build-directory copy and then moving it re-breaks the grant.
 install: app
-	@if ! security find-identity -v -p codesigning | grep -q "$(IDENTITY)"; then \
+	@if ! security find-identity -p codesigning | grep -q "$(IDENTITY)"; then \
 		echo "✗ No '$(IDENTITY)' signing identity. Run: make cert"; exit 1; fi
 	@pkill -x $(APP) 2>/dev/null || true
 	rm -rf $(INSTALLDIR)
