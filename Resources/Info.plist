@@ -11,6 +11,7 @@
     <key>CFBundleVersion</key>           <string>1</string>
     <key>LSUIElement</key>               <true/>
     <key>LSMinimumSystemVersion</key>    <string>13.0</string>
+    <key>CFBundleIconFile</key>          <string>Emojintel</string>
     <key>NSHighResolutionCapable</key>   <true/>
     <key>NSHumanReadableCopyright</key>  <string>Built for Rosy.</string>
 </dict>

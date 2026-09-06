@@ -17,7 +17,7 @@ SHARED_SRC := $(wildcard Sources/Shared/*.swift)
 APP_SRC    := $(wildcard Sources/Emojintel/*.swift) $(SHARED_SRC)
 PROBE_SRC  := $(wildcard Sources/emojintel-probe/*.swift) $(SHARED_SRC)
 
-.PHONY: all probe app install uninstall index cert clean run-keys run-ax run-focus run-markers rank check
+.PHONY: all probe app icons install uninstall index cert clean run-keys run-ax run-focus run-markers rank check
 
 all: app
 
@@ -50,13 +50,14 @@ check: probe
 ## The app bundle
 app: $(APPDIR)
 
-$(APPDIR): $(APP_SRC) Resources/emoji-index.json Resources/overrides.json Resources/Info.plist
+$(APPDIR): $(APP_SRC) Resources/emoji-index.json Resources/overrides.json Resources/Info.plist Resources/Emojintel.icns
 	@mkdir -p $(APPDIR)/Contents/MacOS $(APPDIR)/Contents/Resources
 	swiftc $(SWIFTFLAGS) -o $(APPDIR)/Contents/MacOS/$(APP) $(APP_SRC)
 	cp Resources/Info.plist        $(APPDIR)/Contents/Info.plist
 	cp Resources/emoji-index.json  $(APPDIR)/Contents/Resources/
 	cp Resources/overrides.json    $(APPDIR)/Contents/Resources/
 	cp Resources/EMOJIBASE-LICENSE $(APPDIR)/Contents/Resources/
+	cp Resources/Emojintel.icns    $(APPDIR)/Contents/Resources/
 	@touch $(APPDIR)
 	@echo "✓ $(APPDIR)"
 
@@ -85,6 +86,12 @@ cert:
 ## Regenerate the bundled emoji index from Emojibase (needs network; output is committed)
 index:
 	python3 Tools/build-index.py
+
+## Regenerate the app icon (rose gold + sun)
+icons: Resources/Emojintel.icns
+
+Resources/Emojintel.icns: Tools/make-icons.swift
+	swift Tools/make-icons.swift
 
 clean:
 	rm -rf $(BUILD)

@@ -13,7 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Diagnostics.log("── Emojintel launched ──")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "☀️"
+        statusItem.button?.image = MenuBarIcon.image()
+        statusItem.button?.toolTip = "Emojintel"
         rebuildMenu()
 
         guard let resources = Bundle.main.resourceURL, let idx = EmojiIndex(resourceDirectory: resources) else {
