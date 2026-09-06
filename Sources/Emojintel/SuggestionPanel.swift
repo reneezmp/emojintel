@@ -2,9 +2,9 @@ import AppKit
 
 /// The suggestion pill.
 ///
-/// Mirrors the macOS Sonoma bar: a rounded light container holding three emoji cells
-/// plus a chevron, first cell selected with the system accent colour, anchored below the
-/// word being replaced.
+/// Mirrors the macOS Sonoma bar: a translucent rounded container holding three emoji,
+/// the selected one wearing an inset accent-coloured capsule, a single separator before
+/// a chevron, anchored below the word being replaced.
 ///
 /// MUST be an NSPanel, not an NSWindow: `.nonactivatingPanel` is documented in
 /// NSWindow.h as "Only applicable for NSPanel (or a subclass thereof)". On a plain
@@ -18,7 +18,8 @@ final class SuggestionPanel: NSPanel {
     static let chevronWidth: CGFloat = 15
     static let cornerRadius: CGFloat = 5
 
-    private let contentContainer = SuggestionView()
+    private let vibrancy = NSVisualEffectView()
+    private let content = SuggestionView()
     var onPick: ((Int) -> Void)?
     var onChevron: (() -> Void)?
 
@@ -37,28 +38,42 @@ final class SuggestionPanel: NSPanel {
         hidesOnDeactivate = false
         isMovable = false
         animationBehavior = .utilityWindow
+        acceptsMouseMovedEvents = true
 
-        contentContainer.onPick = { [weak self] i in self?.onPick?(i) }
-        contentContainer.onChevron = { [weak self] in self?.onChevron?() }
-        contentView = contentContainer
+        // Vibrancy behind everything, clipped to the pill's rounded shape. `.menu`
+        // is the material Apple uses for exactly this kind of floating strip, and it
+        // tracks light/dark on its own.
+        vibrancy.material = .menu
+        vibrancy.blendingMode = .behindWindow
+        vibrancy.state = .active
+        vibrancy.wantsLayer = true
+        vibrancy.layer?.cornerRadius = SuggestionPanel.cornerRadius
+        vibrancy.layer?.masksToBounds = true
+
+        content.onPick = { [weak self] i in self?.onPick?(i) }
+        content.onChevron = { [weak self] in self?.onChevron?() }
+        content.autoresizingMask = [.width, .height]
+
+        vibrancy.addSubview(content)
+        contentView = vibrancy
     }
 
     // Never take focus. This is what keeps the caret blinking in the source app.
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    var itemCount: Int { contentContainer.hits.count }
+    var itemCount: Int { content.hits.count }
     var selectedIndex: Int {
-        get { contentContainer.selected }
-        set { contentContainer.selected = newValue; contentContainer.needsDisplay = true }
+        get { content.selected }
+        set { content.selected = newValue; content.needsDisplay = true }
     }
 
-    /// Shows the pill anchored under `wordRect` (Cocoa coords), or under the mouse when
-    /// the app gave us no usable rect.
+    /// Shows the pill anchored under `wordRect` (Cocoa coords), falling back to the text
+    /// field's own frame, then to the mouse.
     func present(hits: [EmojiHit], anchor wordRect: CGRect?, field fieldRect: CGRect? = nil) {
         guard !hits.isEmpty else { close(); return }
-        contentContainer.hits = hits
-        contentContainer.selected = 0
+        content.hits = hits
+        content.selected = 0
 
         let width = CGFloat(hits.count) * SuggestionPanel.cellSize.width + SuggestionPanel.chevronWidth
         let size = NSSize(width: width, height: SuggestionPanel.cellSize.height)
@@ -78,7 +93,8 @@ final class SuggestionPanel: NSPanel {
         origin = clamp(origin: origin, size: size)
 
         setFrame(NSRect(origin: origin, size: size), display: true)
-        contentContainer.needsDisplay = true
+        content.frame = vibrancy.bounds
+        content.needsDisplay = true
         orderFrontRegardless()          // show without activating the app
     }
 
@@ -106,47 +122,43 @@ private final class SuggestionView: NSView {
     var onPick: ((Int) -> Void)?
     var onChevron: (() -> Void)?
 
+    /// Inset of the selection capsule inside its cell. This is what distinguishes the
+    /// Sonoma look from a plain highlighted table row: the accent colour is a floating
+    /// pill around the glyph, not a full-bleed block filling the cell.
+    private let selectionInset = NSSize(width: 1.5, height: 1.5)
+
     override var isFlipped: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.mouseMoved, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+
     override func draw(_ dirty: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let radius = SuggestionPanel.cornerRadius
-        let body = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
-
-        // Container
-        ctx.saveGState()
-        body.addClip()
-        (NSColor.windowBackgroundColor).setFill()
-        bounds.fill()
-
         let cw = SuggestionPanel.cellSize.width
-        // Selection
-        if hits.indices.contains(selected) {
-            let r = NSRect(x: CGFloat(selected) * cw, y: 0, width: cw, height: bounds.height)
-            NSColor.controlAccentColor.setFill()
-            r.fill()
-        }
-        ctx.restoreGState()
 
-        // Separators between unselected cells
-        NSColor.separatorColor.withAlphaComponent(0.5).setStroke()
-        for i in 1..<max(1, hits.count) where i != selected && i - 1 != selected {
-            let x = CGFloat(i) * cw
-            let line = NSBezierPath()
-            line.move(to: NSPoint(x: x, y: 3))
-            line.line(to: NSPoint(x: x, y: bounds.height - 3))
-            line.lineWidth = 1
-            line.stroke()
+        // Selection: an inset capsule, not a full-height block.
+        if hits.indices.contains(selected) {
+            let cell = NSRect(x: CGFloat(selected) * cw, y: 0, width: cw, height: bounds.height)
+            let pill = cell.insetBy(dx: selectionInset.width, dy: selectionInset.height)
+            let r = pill.height / 2.6
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: pill, xRadius: r, yRadius: r).fill()
         }
+
+        // A single separator, before the chevron. The reference has none between the
+        // emoji themselves — cells are separated by spacing, not by rules.
         let chevX = CGFloat(hits.count) * cw
-        if hits.count - 1 != selected {
-            let line = NSBezierPath()
-            line.move(to: NSPoint(x: chevX, y: 3))
-            line.line(to: NSPoint(x: chevX, y: bounds.height - 3))
-            line.lineWidth = 1
-            line.stroke()
-        }
+        NSColor.separatorColor.setStroke()
+        let rule = NSBezierPath()
+        rule.move(to: NSPoint(x: chevX, y: 4))
+        rule.line(to: NSPoint(x: chevX, y: bounds.height - 4))
+        rule.lineWidth = 1
+        rule.stroke()
 
         // Emoji
         let font = NSFont.systemFont(ofSize: 12)
@@ -164,18 +176,12 @@ private final class SuggestionView: NSView {
         ])
         let cs = chev.size()
         chev.draw(at: NSPoint(x: chevX + (SuggestionPanel.chevronWidth - cs.width) / 2,
-                              y: (bounds.height - cs.height) / 2 + 2))
-
-        // Hairline border
-        NSColor.separatorColor.setStroke()
-        body.lineWidth = 1
-        body.stroke()
+                              y: (bounds.height - cs.height) / 2 + 1.5))
     }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        let cw = SuggestionPanel.cellSize.width
-        let idx = Int(p.x / cw)
+        let idx = Int(p.x / SuggestionPanel.cellSize.width)
         if idx >= 0, idx < hits.count { onPick?(idx) } else { onChevron?() }
     }
 

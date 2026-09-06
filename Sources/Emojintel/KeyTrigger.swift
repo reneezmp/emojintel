@@ -143,6 +143,11 @@ final class KeyTrigger {
                 DispatchQueue.main.async { [weak self] in self?.onSelectIndex?(i) }
                 return nil
             }
+            // Command-key combinations are app shortcuts, not typing, so they leave the
+            // pill alone. Practical upshot: you can screenshot the pill with
+            // Cmd-Shift-4 instead of it vanishing the instant you try.
+            if event.flags.contains(.maskCommand) { return pass }
+
             // Anything else dismisses the pill and PASSES THROUGH, so typing isn't eaten.
             DispatchQueue.main.async { [weak self] in self?.onDismiss?() }
             return pass
