@@ -116,7 +116,7 @@ func enableManualAccessibility(for pid: pid_t, bundleID: String?) {
 /// PHASE 0 FINDING: `AXUIElementCreateSystemWide()` returns `cannotComplete` for
 /// AXFocusedUIElement in every app on this machine, so the per-application element is the
 /// PRIMARY route, not the fallback. (The original spec had this the other way around.)
-func focusedTextElement(descendLimit: Int = 3) -> (element: AXUIElement, role: String, route: String)? {
+func focusedTextElement(descendLimit: Int = 5) -> (element: AXUIElement, role: String, route: String)? {
     let front = NSWorkspace.shared.frontmostApplication
     if let front { enableManualAccessibility(for: front.processIdentifier,
                                              bundleID: front.bundleIdentifier) }
@@ -139,23 +139,38 @@ func focusedTextElement(descendLimit: Int = 3) -> (element: AXUIElement, role: S
     guard let el = focused else { return nil }
 
     let role = axString(el, AXAttr.role) ?? "(no role)"
-    if AXRole.textLike.contains(role) { return (el, role, route) }
 
-    // Some apps focus a container; look a couple of levels down for a text element.
+    // Prefer CAPABILITY over role. An element we can actually read a selection range from
+    // is usable whatever it calls itself, and role whitelists miss custom controls.
+    if canReadSelection(el) { return (el, role, route) }
+
+    // Otherwise look downward for something that can. Some apps focus a container, and
+    // web content nests the real field several levels deep.
     var frontier = [el]
-    for _ in 0..<descendLimit {
+    var seen = 0
+    for depth in 0..<descendLimit {
         var next: [AXUIElement] = []
         for e in frontier {
             for child in axChildren(e) {
-                let r = axString(child, AXAttr.role) ?? ""
-                if AXRole.textLike.contains(r) { return (child, r, route + "+descend") }
+                seen += 1
+                if seen > 400 { break }                   // bounded: this runs off the tap,
+                if canReadSelection(child) {              // but must still never hang
+                    let r = axString(child, AXAttr.role) ?? "?"
+                    return (child, r, "\(route)+descend\(depth + 1)")
+                }
                 next.append(child)
             }
         }
-        if next.isEmpty { break }
-        frontier = Array(next.prefix(40))
+        if next.isEmpty || seen > 400 { break }
+        frontier = Array(next.prefix(60))
     }
     return (el, role, route)
+}
+
+/// True when the element exposes a selection range we can act on. This is the real
+/// requirement; the role string is only a hint.
+func canReadSelection(_ el: AXUIElement) -> Bool {
+    axRange(el, AXAttr.selectedRange) != nil
 }
 
 // MARK: - Reading text around the caret

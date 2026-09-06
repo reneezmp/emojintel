@@ -9,7 +9,21 @@ Built for **Rosy** (MacBook10,1, Ventura 13.7.8), the last macOS this machine of
 
 ## Status
 
-**Phase 0 — de-risking.** The probe is built; the app is not written yet.
+**Phase 1 — MVP built, awaiting first real-world test.**
+
+### Phase 0 results (measured on Rosy)
+
+| App | element | read path | word | caret rect |
+|---|---|---|---|---|
+| Notes | AXTextArea | AXStringForRange | ✓ | ✓ |
+| Safari (address bar) | AXTextField | AXStringForRange | ✓ | ✓ |
+| Osaurus | AXTextArea | AXStringForRange | ✓ | ✓ |
+| Claude (Electron) | AXTextArea | AXStringForRange | ✓ | ✗ degenerate → mouse fallback |
+| Terminal | AXTextArea | AXStringForRange | ✓ | — (758 KB scrollback, windowed fine) |
+
+Still untested: TextEdit, Mail, Messages, Chrome, VS Code, Safari page fields.
+
+Six findings that changed the design are recorded in the initial commit message.
 
 ## Phase 0: run the probes
 
