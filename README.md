@@ -9,49 +9,98 @@ Built for **Rosy** (MacBook10,1, Ventura 13.7.8), the last macOS this machine of
 
 ## Status
 
-**Phase 1 — MVP built, awaiting first real-world test.**
+**Working.** Confirmed on Ventura 13.7.8 in Notes, TextEdit, Stickies, Mail, Messages,
+Reminders, Finder, Spotlight, System Settings, Safari (address bar and page fields),
+Terminal, Discord, Edge, and Electron apps.
 
-### Phase 0 results (measured on Rosy)
+## Install
 
-| App | element | read path | word | caret rect |
-|---|---|---|---|---|
-| Notes | AXTextArea | AXStringForRange | ✓ | ✓ |
-| Safari (address bar) | AXTextField | AXStringForRange | ✓ | ✓ |
-| Osaurus | AXTextArea | AXStringForRange | ✓ | ✓ |
-| Claude (Electron) | AXTextArea | AXStringForRange | ✓ | ✗ degenerate → mouse fallback |
-| Terminal | AXTextArea | AXStringForRange | ✓ | — (758 KB scrollback, windowed fine) |
-
-Still untested: TextEdit, Mail, Messages, Chrome, VS Code, Safari page fields.
-
-Six findings that changed the design are recorded in the initial commit message.
-
-## Phase 0: run the probes
-
-Both probes need Accessibility permission, and when run from a terminal that permission
-belongs to *the terminal app*, not to the probe. Run these from Terminal.app or iTerm and
-grant it when prompted.
-
-```
-make probe          # build
-make check          # report fn setting, Secure Input, Accessibility trust
-make run-keys       # verify the fn / Right-⌘ triggers
-make run-ax         # dump the focused text element, per app
+```bash
+make cert       # one-time: self-signed identity so the Accessibility grant survives rebuilds
+make install    # build, sign, copy to /Applications, launch
 ```
 
-### `run-keys` — what we're proving
+Then grant Accessibility when prompted, and set
+System Settings → Keyboard → "Press fn key to" → **Do Nothing**.
+(The app detects it if you don't, and says so in its ☀️ menu rather than failing silently.)
 
-The single biggest unknown: **does a lone `fn` reach a userspace event tap on this
-machine, and does it still do so while `AppleFnUsageType != 0`?**
+Type a word, tap `fn` — or **Right ⌘** — then `←` `→` to choose, Enter to accept,
+`1`–`3` to jump straight to one, Esc to dismiss. The chevron opens the full Character Viewer.
 
-Note that `fn` emits `flagsChanged`, *not* `keyDown`/`keyUp` — modifier keys never
-generate key events. Watch for keycode 63 appearing as a flagsChanged pair (DOWN then UP)
-followed by `FIRE fn tapped alone ✅`.
+## What was hard
 
-### `run-ax` — what we're proving
+macOS documentation is wrong or absent for most of this, so every design decision below
+came from probing the machine rather than from the docs. The probes are still in the repo
+(`make run-keys`, `run-ax`, `run-focus`, `run-markers`, `rank`) because they earned it.
 
-Which apps let us read the word behind the caret, get its on-screen rect, and write a
-replacement back. Click through TextEdit, Notes, Safari (address bar *and* a page field),
-Mail, Messages, Chrome and VS Code, typing a word in each.
+**`fn` doesn't emit key events.** It emits `flagsChanged` with keycode 63 — modifier keys
+never produce keyDown/keyUp. A tap masking `keyDown|keyUp` never fires at all. Also: plain
+arrow keys carry `maskSecondaryFn` on Mac laptops, so you must gate on the keycode, never
+on the flag.
+
+**The AX constants don't exist.** `AXAttributeConstants.h` in the Command Line Tools SDK is
+documentation-only — zero `#define`s — and `kAXBoundsForRangeParameterizedAttribute`
+appears nowhere in the SDK. Every attribute name here is a string literal.
+
+**`AXUIElementCreateSystemWide()` is useless on this machine.** It returns `cannotComplete`
+for `AXFocusedUIElement` in every app. The per-application element built from the frontmost
+pid is the primary route.
+
+**Roles lie; capabilities don't.** Whitelisting `AXTextField`/`AXTextArea` misses custom
+controls and web content. Elements are selected by whether they actually expose a usable
+selection range.
+
+**Never read the whole field.** Terminal's `AXValue` is its entire scrollback — 758 KB in
+testing. Text is read through a ±96-character `AXStringForRange` window instead.
+
+**Never do AX work inside the event-tap callback.** The first AX call into an app costs
+22–354 ms. A slow callback trips `kCGEventTapDisabledByTimeout` and the tap dies silently.
+The callback runs the keycode state machine and nothing else.
+
+**Some apps lie about writes.** Safari's fields and Electron text areas return `.success`
+from setting `AXSelectedTextRange` without applying it. The selection is always set, read
+back, and only believed if it matches.
+
+**Terminals lie differently.** Their `AXTextArea` is the scrollback, not the input line —
+setting a selection succeeds, but typed characters go to the tty, so the emoji lands beside
+the word instead of replacing it. Terminals skip AX writes entirely.
+
+**Electron returns a fake rect,** `(0, 800, 0x0)`, rather than failing. Caret rects are
+validated for size and on-screen-ness, not merely non-nil.
+
+**Mail needs a completely different API.** Its compose area is an `AXWebArea` with no
+`AXSelectedTextRange` at all; WebKit uses opaque text markers
+(`AXLeftWordTextMarkerRangeForTextMarker` and friends). Markers can't be written, so
+replacement there is by synthesized keystrokes.
+
+**Ad-hoc signing quietly breaks everything.** `codesign --sign -` pins the TCC record to the
+binary's cdhash, so every rebuild revokes Accessibility with no re-prompt. `make cert`
+creates a stable self-signed identity. Two surprises: `security import` fails MAC
+verification on a PKCS12 with an *empty* password, and the certificate does **not** need to
+be trusted — `codesign` signs fine with an untrusted one and still produces the
+`identifier + certificate leaf` requirement that makes the grant survive.
+
+**Emojibase's ranking is Unicode chart order, not frequency,** so `fire` ranks ❤️‍🔥 above 🔥
+and `love` ranks 💌 above ❤️. `Resources/overrides.json` pins the ~84 words where that
+matters.
+
+## The probes
+
+These need Accessibility permission, and when run from a terminal that permission belongs
+to *the terminal app*, not to the probe. Run them from Terminal.app and grant it when
+prompted.
+
+```
+make check          # fn setting, Secure Input, Accessibility trust
+make run-keys       # log keyDown / flagsChanged; verify the fn and Right-⌘ triggers
+make run-ax         # focused element: role, read path, word, caret rect, timing
+make run-focus      # why focused-element lookup failed, with exact AXErrors
+make run-markers    # every AX attribute + the WebKit text-marker chain
+make rank [words]   # the emoji index and ranking, without launching the app
+```
+
+The app also writes one line per trigger to `~/Library/Logs/Emojintel.log`
+(☀️ menu → Open Diagnostics Log).
 
 ## Layout
 
