@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)          // menu-bar only, no Dock icon
+        Diagnostics.rotateIfLarge()
+        Diagnostics.log("── Emojintel launched ──")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "☀️"
@@ -85,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(info)
         }
         menu.addItem(.separator())
+        menu.addItem(item("Open Diagnostics Log", #selector(openLog)))
         menu.addItem(item("Quit Emojintel", #selector(quit), key: "q"))
 
         statusItem.menu = menu
@@ -104,6 +107,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openAccessibility() { Permissions.openAccessibilitySettings() }
     @objc private func openKeyboard()      { Permissions.openKeyboardSettings() }
     @objc private func quit()              { NSApp.terminate(nil) }
+    @objc private func openLog() {
+        let url = Diagnostics.url
+        if !FileManager.default.fileExists(atPath: url.path) {
+            Diagnostics.log("(log opened before any trigger)")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     private func fatal(_ message: String) {
         let a = NSAlert()

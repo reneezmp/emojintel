@@ -1,68 +1,65 @@
 import AppKit
 import ApplicationServices
 
-/// Replaces the word at `range` with an emoji, walking a three-tier ladder.
+/// Replaces the word at `range` with an emoji.
 ///
-/// The original spec had only two tiers and clobbered the clipboard permanently. Phase 0
-/// showed why a middle tier is needed: several apps expose a readable AXValue but reject
-/// AX writes, and pasting is both slower and destructive.
+/// The hard-won lesson here: several apps (Safari's fields, Electron text areas) return
+/// `.success` from setting AXSelectedTextRange **without actually applying it**. Trusting
+/// that return code means we then type the emoji at an unselected caret, so the word is
+/// never removed. So we always SET, then READ BACK, and only treat the selection as real
+/// if the read-back matches.
 enum WordReplacer {
 
+    /// - Parameter caret: absolute UTF-16 caret offset at trigger time. Needed because a
+    ///   mid-word caret means we can't just backspace — we have to walk to the word's end
+    ///   first, or we'd delete the characters before the caret instead of the word.
     @discardableResult
-    static func replace(element: AXUIElement, range: CFRange, with emoji: String) -> String {
-        var r = range
-        let rangeValue = AXValueCreate(.cfRange, &r)
+    static func replace(element: AXUIElement, range: CFRange, caret: Int, with emoji: String) -> String {
 
-        // Tier 1 — direct AX write. Instant, no synthesized input, no side effects.
-        if let rv = rangeValue,
-           AXUIElementSetAttributeValue(element, AXAttr.selectedRange, rv) == .success {
-            if AXUIElementSetAttributeValue(element, AXAttr.selectedText, emoji as CFString) == .success {
+        if selectRangeVerified(element, range) {
+            // Tier 1 — direct AX write into the verified selection.
+            if AXUIElementSetAttributeValue(element, AXAttr.selectedText, emoji as CFString) == .success,
+               verifyGone(element, range: range, emoji: emoji) {
                 return "tier1-ax"
             }
-            // The selection is now the word, so typing over it replaces exactly it.
+            // Tier 2 — the selection is real, so typing over it replaces exactly the word.
             postUnicode(emoji)
-            return "tier2-unicode"
+            return "tier2-unicode-over-selection"
         }
 
-        // Tier 2b — the field refused the range too: delete the word by hand, then type.
-        // Only safe because we know the caret sits at the word's end.
-        for _ in 0..<range.length { postKey(0x33) }          // kVK_Delete (backspace)
+        // Tier 3 — the field would not take a selection. Walk the caret to the end of the
+        // word, delete it a character at a time, then type the emoji.
+        let wordEnd = range.location + range.length
+        let forward = max(0, wordEnd - caret)
+        for _ in 0..<forward { postKey(kRightArrow) }
+        for _ in 0..<range.length { postKey(kBackspace) }
         postUnicode(emoji)
-        return "tier2-backspace"
+        return "tier3-backspace"
     }
 
-    /// Tier 3 — clipboard paste. Last resort, and it SAVES AND RESTORES the previous
-    /// pasteboard contents; silently eating whatever the user had copied is not acceptable.
-    static func replaceViaPaste(element: AXUIElement, range: CFRange, with emoji: String) -> String {
+    /// Sets the selection and confirms it actually took.
+    private static func selectRangeVerified(_ element: AXUIElement, _ range: CFRange) -> Bool {
         var r = range
-        if let rv = AXValueCreate(.cfRange, &r) {
-            AXUIElementSetAttributeValue(element, AXAttr.selectedRange, rv)
+        guard let rv = AXValueCreate(.cfRange, &r) else { return false }
+        guard AXUIElementSetAttributeValue(element, AXAttr.selectedRange, rv) == .success else {
+            return false
         }
-        let pb = NSPasteboard.general
-        let saved = pb.pasteboardItems?.compactMap { item -> [NSPasteboard.PasteboardType: Data] in
-            var d: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types { if let v = item.data(forType: type) { d[type] = v } }
-            return d
-        } ?? []
+        guard let readBack = axRange(element, AXAttr.selectedRange) else { return false }
+        return readBack.location == range.location && readBack.length == range.length
+    }
 
-        pb.clearContents()
-        pb.setString(emoji, forType: .string)
-        postKey(0x09, flags: .maskCommand)                    // kVK_ANSI_V
-
-        // Restore after the paste has had time to land.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            pb.clearContents()
-            let items: [NSPasteboardItem] = saved.map { dict in
-                let item = NSPasteboardItem()
-                for (t, d) in dict { item.setData(d, forType: t) }
-                return item
-            }
-            if !items.isEmpty { pb.writeObjects(items) }
-        }
-        return "tier3-paste"
+    /// Confirms the AX write actually changed the text, rather than reporting success and
+    /// doing nothing.
+    private static func verifyGone(_ element: AXUIElement, range: CFRange, emoji: String) -> Bool {
+        guard let now = axRange(element, AXAttr.selectedRange) else { return true }
+        // After a successful replacement the selection collapses or moves off the old word.
+        return !(now.location == range.location && now.length == range.length)
     }
 
     // MARK: - Synthesized input
+
+    private static let kRightArrow: CGKeyCode = 0x7C
+    private static let kBackspace: CGKeyCode = 0x33
 
     private static func postUnicode(_ s: String) {
         guard let src = CGEventSource(stateID: .combinedSessionState),

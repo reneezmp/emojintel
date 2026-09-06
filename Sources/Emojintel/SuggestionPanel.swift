@@ -12,9 +12,12 @@ import AppKit
 /// which breaks the single most important behaviour of the whole tool.
 final class SuggestionPanel: NSPanel {
 
-    static let cellSize = NSSize(width: 46, height: 40)
-    static let chevronWidth: CGFloat = 32
-    static let cornerRadius: CGFloat = 9
+    // Sized against a 16pt text line: the first cut was 40pt tall, i.e. 2.5x the text
+    // it sits under, which read as enormous. These are the only numbers to touch if it
+    // still wants tuning — everything else lays out from them.
+    static let cellSize = NSSize(width: 32, height: 26)
+    static let chevronWidth: CGFloat = 22
+    static let cornerRadius: CGFloat = 7
 
     private let contentContainer = SuggestionView()
     var onPick: ((Int) -> Void)?
@@ -63,7 +66,7 @@ final class SuggestionPanel: NSPanel {
 
         var origin: NSPoint
         if let r = wordRect {
-            origin = NSPoint(x: r.minX, y: r.minY - size.height - 6)
+            origin = NSPoint(x: r.minX, y: r.minY - size.height - 4)
         } else {
             let m = NSEvent.mouseLocation
             origin = NSPoint(x: m.x, y: m.y - size.height - 18)
@@ -127,22 +130,22 @@ private final class SuggestionView: NSView {
         for i in 1..<max(1, hits.count) where i != selected && i - 1 != selected {
             let x = CGFloat(i) * cw
             let line = NSBezierPath()
-            line.move(to: NSPoint(x: x, y: 7))
-            line.line(to: NSPoint(x: x, y: bounds.height - 7))
+            line.move(to: NSPoint(x: x, y: 5))
+            line.line(to: NSPoint(x: x, y: bounds.height - 5))
             line.lineWidth = 1
             line.stroke()
         }
         let chevX = CGFloat(hits.count) * cw
         if hits.count - 1 != selected {
             let line = NSBezierPath()
-            line.move(to: NSPoint(x: chevX, y: 7))
-            line.line(to: NSPoint(x: chevX, y: bounds.height - 7))
+            line.move(to: NSPoint(x: chevX, y: 5))
+            line.line(to: NSPoint(x: chevX, y: bounds.height - 5))
             line.lineWidth = 1
             line.stroke()
         }
 
         // Emoji
-        let font = NSFont.systemFont(ofSize: 23)
+        let font = NSFont.systemFont(ofSize: 16)
         for (i, hit) in hits.enumerated() {
             let s = NSAttributedString(string: hit.emoji, attributes: [.font: font])
             let sz = s.size()
@@ -152,7 +155,7 @@ private final class SuggestionView: NSView {
 
         // Chevron
         let chev = NSAttributedString(string: "⌄", attributes: [
-            .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ])
         let cs = chev.size()

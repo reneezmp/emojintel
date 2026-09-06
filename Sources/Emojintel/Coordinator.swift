@@ -13,7 +13,7 @@ final class Coordinator {
 
     /// The target captured at trigger time. The user may move focus while the pill is up;
     /// we always replace into the element we actually read from.
-    private var target: (element: AXUIElement, range: CFRange)?
+    private var target: (element: AXUIElement, range: CFRange, caret: Int)?
     private var hits: [EmojiHit] = []
 
     var onStateChange: (() -> Void)?
@@ -50,17 +50,31 @@ final class Coordinator {
     func fire() {
         dismiss()
 
-        guard let (element, _, _) = focusedTextElement(),
-              let ctx = readTextContext(element),
-              let (word, range) = wordAtCaret(ctx)
-        else { return }                                   // silent no-op, by design
+        let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+
+        guard let (element, role, route) = focusedTextElement() else {
+            Diagnostics.log("[\(appName)] no focused element"); return
+        }
+        guard let ctx = readTextContext(element) else {
+            Diagnostics.log("[\(appName)] \(role) via \(route) — no readable text"); return
+        }
+        guard let (word, range) = wordAtCaret(ctx) else {
+            Diagnostics.log("[\(appName)] \(role) — no word at caret"); return
+        }
 
         let suggestions = index.suggestions(for: word, limit: 3)
-        guard !suggestions.isEmpty else { return }
+        guard !suggestions.isEmpty else {
+            Diagnostics.log("[\(appName)] \(role) — \"\(word)\" → no suggestions"); return
+        }
+
+        let rect = wordRectInCocoaSpace(element, range: range)
+        Diagnostics.log("[\(appName)] \(role) via \(route) — \"\(word)\" → "
+            + suggestions.map(\.emoji).joined(separator: " ")
+            + (rect == nil ? "  (no rect: mouse fallback)" : ""))
 
         hits = suggestions
-        target = (element, range)
-        panel.present(hits: suggestions, anchor: wordRectInCocoaSpace(element, range: range))
+        target = (element, range, ctx.windowStart + ctx.caretInWindow)
+        panel.present(hits: suggestions, anchor: rect)
         trigger.pillIsOpen = true
     }
 
@@ -78,13 +92,14 @@ final class Coordinator {
 
     private func commit() {
         guard trigger.pillIsOpen,
-              let (element, range) = target,
+              let (element, range, caret) = target,
               hits.indices.contains(panel.selectedIndex)
         else { dismiss(); return }
 
         let emoji = hits[panel.selectedIndex].emoji
         dismiss()
-        WordReplacer.replace(element: element, range: range, with: emoji)
+        let tier = WordReplacer.replace(element: element, range: range, caret: caret, with: emoji)
+        Diagnostics.log("    → replaced with \(emoji) via \(tier)")
     }
 
     func dismiss() {
