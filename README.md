@@ -26,6 +26,7 @@ System Settings → Keyboard → "Press fn key to" → **Do Nothing**.
 
 Type a word, tap `fn` — or **Right ⌘** — then `←` `→` to choose, Enter to accept,
 `1`–`3` to jump straight to one, Esc to dismiss. The chevron opens the full Character Viewer.
+Command-key shortcuts pass through without dismissing the pill, so `⌘⇧4` can screenshot it.
 
 ## What was hard
 
@@ -80,8 +81,17 @@ verification on a PKCS12 with an *empty* password, and the certificate does **no
 be trusted — `codesign` signs fine with an untrusted one and still produces the
 `identifier + certificate leaf` requirement that makes the grant survive.
 
+**`.nonactivatingPanel` only works on `NSPanel`.** `NSWindow.h` says so in a comment and
+nowhere else; on a plain `NSWindow` the flag is silently ignored and the pill steals focus
+from the app you're typing in, which defeats the entire point.
+
+**`layer.cornerRadius` doesn't clip an `NSVisualEffectView`.** The effect view manages its
+own layer, so the corners render square no matter what radius you set. `maskImage` with cap
+insets is the approach that works. Same shape of bug as the `AXSelectedTextRange` one: an
+API that accepts a value, reports success, and quietly does nothing.
+
 **Emojibase's ranking is Unicode chart order, not frequency,** so `fire` ranks ❤️‍🔥 above 🔥
-and `love` ranks 💌 above ❤️. `Resources/overrides.json` pins the ~84 words where that
+and `love` ranks 💌 above ❤️. `Resources/overrides.json` pins the 84 words where that
 matters.
 
 ## The probes
@@ -108,10 +118,29 @@ The app also writes one line per trigger to `~/Library/Logs/Emojintel.log`
 Makefile                      build · sign · install
 Tools/build-index.py          Emojibase (pinned v17.0.0) → slim bundled index
 Tools/make-signing-cert.sh    one-time self-signed identity, so TCC survives rebuilds
+Tools/make-icons.swift        the app icon: ☀️ on rose gold, rendered not hand-drawn
 Resources/emoji-index.json    1716 emoji, 203 KB, generated
-Resources/overrides.json      83 hand-curated words where generic ranking gets it wrong
-Sources/emojintel-probe/      Phase 0 diagnostics (kept permanently as a debug aid)
-Sources/Emojintel/            the app (Phase 1)
+Resources/overrides.json      84 hand-curated words where generic ranking gets it wrong
+Sources/Emojintel/            the app
+Sources/Shared/               AX plumbing and the emoji index, shared with the probes
+Sources/emojintel-probe/      diagnostics, kept permanently as a debugging aid
+```
+
+Two things are generated rather than committed. `Resources/emoji-index.json` **is** in the
+repo, because rebuilding it needs the network and the build must not. `Emojintel.icns` is
+**not**, because `make icons` regenerates it offline in a second — and a 1.1 MB binary in
+git is how the first push failed.
+
+## Make targets
+
+```
+make install     # the usual one: build, sign, install to /Applications, launch
+make app         # build the bundle without installing
+make icons       # regenerate the app icon (edit Tools/make-icons.swift to retune it)
+make index       # regenerate the emoji index from Emojibase (needs network)
+make cert        # one-time signing identity
+make uninstall   # remove /Applications/Emojintel.app
+make clean       # drop .build/
 ```
 
 ## Notes
