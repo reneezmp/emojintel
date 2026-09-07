@@ -16,7 +16,10 @@ final class SuggestionPanel: NSPanel {
     // them. History: 40pt (2.5x the 16pt text line — enormous), then 26pt, now 18pt.
     static let cellSize = NSSize(width: 22, height: 18)
     static let chevronWidth: CGFloat = 15
-    static let cornerRadius: CGFloat = 5
+    /// As a fraction of the height, so it stays proportional if the pill is resized.
+    /// 0.42 is close to a capsule while still reading as a rounded rectangle.
+    static let cornerFraction: CGFloat = 0.42
+    static var cornerRadius: CGFloat { cellSize.height * cornerFraction }
 
     private let vibrancy = NSVisualEffectView()
     private let content = SuggestionView()
@@ -46,9 +49,10 @@ final class SuggestionPanel: NSPanel {
         vibrancy.material = .menu
         vibrancy.blendingMode = .behindWindow
         vibrancy.state = .active
-        vibrancy.wantsLayer = true
-        vibrancy.layer?.cornerRadius = SuggestionPanel.cornerRadius
-        vibrancy.layer?.masksToBounds = true
+        // Shape it with maskImage, not layer.cornerRadius: NSVisualEffectView manages
+        // its own layer, and setting cornerRadius on it does not reliably clip the
+        // vibrancy — which is why the corners were rendering squarer than specified.
+        vibrancy.maskImage = SuggestionPanel.roundedMask(radius: SuggestionPanel.cornerRadius)
 
         content.onPick = { [weak self] i in self?.onPick?(i) }
         content.onChevron = { [weak self] in self?.onChevron?() }
@@ -56,6 +60,20 @@ final class SuggestionPanel: NSPanel {
 
         vibrancy.addSubview(content)
         contentView = vibrancy
+    }
+
+    /// A resizable rounded-rectangle mask. The cap insets let AppKit stretch the flat
+    /// middle while leaving the corners untouched at any width.
+    static func roundedMask(radius: CGFloat) -> NSImage {
+        let d = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
     }
 
     // Never take focus. This is what keeps the caret blinking in the source app.
@@ -145,7 +163,7 @@ private final class SuggestionView: NSView {
         if hits.indices.contains(selected) {
             let cell = NSRect(x: CGFloat(selected) * cw, y: 0, width: cw, height: bounds.height)
             let pill = cell.insetBy(dx: selectionInset.width, dy: selectionInset.height)
-            let r = pill.height / 2.6
+            let r = pill.height / 2.2
             NSColor.controlAccentColor.setFill()
             NSBezierPath(roundedRect: pill, xRadius: r, yRadius: r).fill()
         }
