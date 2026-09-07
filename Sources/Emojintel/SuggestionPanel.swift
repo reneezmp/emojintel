@@ -13,9 +13,11 @@ import AppKit
 final class SuggestionPanel: NSPanel {
 
     // The only numbers to touch if this wants tuning; everything else lays out from
-    // them. History: 40pt (2.5x the 16pt text line — enormous), then 26pt, now 18pt.
-    static let cellSize = NSSize(width: 22, height: 18)
-    static let chevronWidth: CGFloat = 15
+    // them. History: 40pt (2.5x the 16pt text line — enormous), 26pt, 18pt (too
+    // small), now 22pt. Width and glyph sizes scale with the height so the cells
+    // keep their proportions — a square cell turns the selection capsule circular.
+    static let cellSize = NSSize(width: 27, height: 22)
+    static let chevronWidth: CGFloat = 18
     /// As a fraction of the height, so it stays proportional if the pill is resized.
     /// 0.42 is close to a capsule while still reading as a rounded rectangle.
     static let cornerFraction: CGFloat = 0.42
@@ -143,7 +145,7 @@ private final class SuggestionView: NSView {
     /// Inset of the selection capsule inside its cell. This is what distinguishes the
     /// Sonoma look from a plain highlighted table row: the accent colour is a floating
     /// pill around the glyph, not a full-bleed block filling the cell.
-    private let selectionInset = NSSize(width: 1.5, height: 1.5)
+    private let selectionInset = NSSize(width: 2, height: 2)
 
     override var isFlipped: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -179,7 +181,7 @@ private final class SuggestionView: NSView {
         rule.stroke()
 
         // Emoji
-        let font = NSFont.systemFont(ofSize: 12)
+        let font = NSFont.systemFont(ofSize: 14)
         for (i, hit) in hits.enumerated() {
             let s = NSAttributedString(string: hit.emoji, attributes: [.font: font])
             let sz = s.size()
@@ -189,7 +191,7 @@ private final class SuggestionView: NSView {
 
         // Chevron
         let chev = NSAttributedString(string: "⌄", attributes: [
-            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ])
         let cs = chev.size()
