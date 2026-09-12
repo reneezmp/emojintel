@@ -1,5 +1,9 @@
 {
   "_comment": "Hand-curated head-of-results for words actually typed daily. Emojibase's `order` field is Unicode chart order, not frequency, so generic ranking gets these subtly wrong (fire -> heart-on-fire, love -> love-letter, sad -> sad-but-relieved-face). These are prepended to the ranked results; anything not listed falls through to normal scoring.",
+  "amen": [
+    "🙏",
+    "🤲"
+  ],
   "angry": [
     "😠",
     "😡",

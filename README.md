@@ -105,7 +105,7 @@ insets is the approach that works. Same shape of bug as the `AXSelectedTextRange
 API that accepts a value, reports success, and quietly does nothing.
 
 **Emojibase's ranking is Unicode chart order, not frequency,** so `fire` ranks ❤️‍🔥 above 🔥
-and `love` ranks 💌 above ❤️. `Resources/overrides.json` pins the 84 words where that
+and `love` ranks 💌 above ❤️. `Resources/overrides.json` pins the 85 words where that
 matters.
 
 ## The probes
@@ -120,7 +120,7 @@ make run-keys       # log keyDown / flagsChanged; verify the fn and Right-⌘ tr
 make run-ax         # focused element: role, read path, word, caret rect, timing
 make run-focus      # why focused-element lookup failed, with exact AXErrors
 make run-markers    # every AX attribute + the WebKit text-marker chain
-make rank [words]   # the emoji index and ranking, without launching the app
+make rank WORDS="…" # the emoji index and ranking, without launching the app
 ```
 
 The app also writes one line per trigger to `~/Library/Logs/Emojintel.log`
@@ -134,7 +134,7 @@ Tools/build-index.py          Emojibase (pinned v17.0.0) → slim bundled index
 Tools/make-signing-cert.sh    one-time self-signed identity, so TCC survives rebuilds
 Tools/make-icons.swift        the app icon: ☀️ on rose gold, rendered not hand-drawn
 Resources/emoji-index.json    1716 emoji, 203 KB, generated
-Resources/overrides.json      84 hand-curated words where generic ranking gets it wrong
+Resources/overrides.json      85 hand-curated words where generic ranking gets it wrong
 Sources/Emojintel/            the app
 Sources/Shared/               AX plumbing and the emoji index, shared with the probes
 Sources/emojintel-probe/      diagnostics, kept permanently as a debugging aid

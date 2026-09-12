@@ -41,8 +41,10 @@ run-focus: probe
 run-markers: probe
 	./$(BUILD)/emojintel-probe markers
 
+# Bare words can't be forwarded here: `make rank amen` makes "amen" a target and fails.
+# Hence WORDS=, rather than a catch-all `%:` rule that would swallow typos of real targets.
 rank: probe
-	./$(BUILD)/emojintel-probe rank
+	./$(BUILD)/emojintel-probe rank $(WORDS)
 
 check: probe
 	./$(BUILD)/emojintel-probe env
