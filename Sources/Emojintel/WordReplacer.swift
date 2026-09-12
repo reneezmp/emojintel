@@ -26,18 +26,31 @@ enum WordReplacer {
                 return "tier1-ax"
             }
             // Tier 2 — the selection is real, so typing over it replaces exactly the word.
-            postUnicode(emoji)
+            postSequence(thenInsert: emoji)
             return "tier2-unicode-over-selection"
         }
 
+        // FINDING: a failed read-back does NOT mean the selection failed to APPLY. Electron
+        // reports a stale range and then honours the selection anyway, so tier 3 would
+        // start backspacing into a field where the word is still selected — the first
+        // backspace deletes the whole selection and every later one eats a character that
+        // should have survived. "im completely shocked" became "im compl🤯": seven
+        // backspaces removed thirteen characters, 7 + 6. So put the caret back before
+        // falling through. This is the same lesson as the original one, one layer deeper:
+        // the return code lies, and so does the read-back that was meant to catch it.
+        if !frontmostIsTerminal() { collapseSelection(element, at: caret) }
+
         // Tier 3 — the field would not take a selection. Walk the caret to the end of the
         // word, delete it a character at a time, then type the emoji.
+        //
+        // The sequence is handed off to be posted at a survivable pace, so this returns the
+        // tier it chose, not the tier having finished. See `postSequence`.
         let wordEnd = range.location + range.length
         let forward = max(0, wordEnd - caret)
-        for _ in 0..<forward { postKey(kRightArrow) }
-        for _ in 0..<range.length { postKey(kBackspace) }
-        postUnicode(emoji)
-        return "tier3-backspace"
+        postSequence(keys: Array(repeating: kRightArrow, count: forward)
+                         + Array(repeating: kBackspace, count: range.length),
+                     thenInsert: emoji)
+        return "tier3-backspace (right×\(forward), delete×\(range.length))"
     }
 
     /// Sets the selection and confirms it actually took.
@@ -49,6 +62,19 @@ enum WordReplacer {
         }
         guard let readBack = axRange(element, AXAttr.selectedRange) else { return false }
         return readBack.location == range.location && readBack.length == range.length
+    }
+
+    /// Collapses the selection to a bare caret, undoing a selection that may have been
+    /// applied despite the read-back saying otherwise. Writing a zero-length range goes
+    /// through the identical API that just set the selection, so if that one took silently,
+    /// this one does too.
+    @discardableResult
+    private static func collapseSelection(_ element: AXUIElement, at caret: Int) -> Bool {
+        var r = CFRange(location: caret, length: 0)
+        guard let rv = AXValueCreate(.cfRange, &r) else { return false }
+        AXUIElementSetAttributeValue(element, AXAttr.selectedRange, rv)
+        guard let back = axRange(element, AXAttr.selectedRange) else { return false }
+        return back.length == 0
     }
 
     /// Confirms the AX write actually changed the text, rather than reporting success and
@@ -64,8 +90,7 @@ enum WordReplacer {
     /// exactly on it.
     @discardableResult
     static func replaceByTyping(deleting length: Int, with emoji: String) -> String {
-        for _ in 0..<length { postKey(kBackspace) }
-        postUnicode(emoji)
+        postSequence(keys: Array(repeating: kBackspace, count: length), thenInsert: emoji)
         return "marker-backspace"
     }
 
@@ -82,7 +107,7 @@ enum WordReplacer {
     /// That shortcut can be switched off in System Settings, which would make this do
     /// nothing — `Permissions.emojiHotkeyEnabled` detects it and the ☀️ menu says so.
     static func openEmojiPicker() {
-        postKey(kSpace, flags: [.maskControl, .maskCommand])
+        postSequence(keys: [kSpace], flags: [.maskControl, .maskCommand])
     }
 
     // MARK: - Synthesized input
@@ -91,25 +116,66 @@ enum WordReplacer {
     private static let kBackspace: CGKeyCode = 0x33
     private static let kSpace: CGKeyCode = 0x31
 
-    private static func postUnicode(_ s: String) {
-        guard let src = CGEventSource(stateID: .combinedSessionState),
-              let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
+    /// Synthesized input is posted here, never on the main queue.
+    ///
+    /// The event tap's callback runs on the main run loop, so pacing keystrokes with sleeps
+    /// on the main queue would stall the tap and trip kCGEventTapDisabledByTimeout — the
+    /// exact failure the callback is written to avoid. A serial queue also stops two
+    /// overlapping triggers from interleaving their keystrokes.
+    private static let inputQueue = DispatchQueue(label: "dev.renee.emojintel.synthetic-input")
+
+    /// Gap between synthesized keystrokes.
+    ///
+    /// FINDING: posted back-to-back with no gap, keystrokes are silently DROPPED by
+    /// Chromium/Electron text areas. "shocked" lost four characters instead of seven and
+    /// left "sho" sitting in front of the emoji — while the same path had worked for
+    /// "wow", "nails" and "heart" minutes earlier. Identical code, different outcome, which
+    /// is the signature of a race and not a miscount. Rich-text editors (Claude, Slack,
+    /// Notion) apply each keystroke through an async state update, so deletions have to be
+    /// paced to the editor rather than fired at CPU speed.
+    private static let keystrokeGap: useconds_t = 8_000          // 8 ms
+
+    /// Longer pause before the emoji goes in, so the editor has finished applying the
+    /// deletions. Without it the insert lands mid-flush and can take neighbouring
+    /// characters with it — the "replaced more than it should have" half of the same bug.
+    private static let settleBeforeInsert: useconds_t = 25_000   // 25 ms
+
+    /// Posts a paced key sequence, then optionally inserts text.
+    ///
+    /// One CGEventSource is built for the whole sequence rather than one per keystroke:
+    /// cheaper, and it keeps every event in the sequence attributable to the same source.
+    private static func postSequence(keys: [CGKeyCode] = [],
+                                     flags: CGEventFlags = [],
+                                     thenInsert text: String? = nil) {
+        inputQueue.async {
+            guard let src = CGEventSource(stateID: .combinedSessionState) else { return }
+            for key in keys {
+                post(src, key: key, flags: flags)
+                usleep(keystrokeGap)
+            }
+            guard let text else { return }
+            if !keys.isEmpty { usleep(settleBeforeInsert) }
+            postUnicode(src, text)
+        }
+    }
+
+    private static func post(_ src: CGEventSource, key: CGKeyCode, flags: CGEventFlags) {
+        guard let down = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: true),
+              let up = CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: false)
+        else { return }
+        down.flags = flags
+        up.flags = flags
+        down.post(tap: .cgAnnotatedSessionEventTap)
+        up.post(tap: .cgAnnotatedSessionEventTap)
+    }
+
+    private static func postUnicode(_ src: CGEventSource, _ s: String) {
+        guard let down = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)
         else { return }
         let utf16 = Array(s.utf16)
         down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
         up.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
-        down.post(tap: .cgAnnotatedSessionEventTap)
-        up.post(tap: .cgAnnotatedSessionEventTap)
-    }
-
-    private static func postKey(_ keycode: CGKeyCode, flags: CGEventFlags = []) {
-        guard let src = CGEventSource(stateID: .combinedSessionState),
-              let down = CGEvent(keyboardEventSource: src, virtualKey: keycode, keyDown: true),
-              let up = CGEvent(keyboardEventSource: src, virtualKey: keycode, keyDown: false)
-        else { return }
-        down.flags = flags
-        up.flags = flags
         down.post(tap: .cgAnnotatedSessionEventTap)
         up.post(tap: .cgAnnotatedSessionEventTap)
     }

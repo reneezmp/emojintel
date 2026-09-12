@@ -78,6 +78,24 @@ The callback runs the keycode state machine and nothing else.
 from setting `AXSelectedTextRange` without applying it. The selection is always set, read
 back, and only believed if it matches.
 
+**The read-back that catches the lie can lie too.** Setting `AXSelectedTextRange` is
+verified by reading it straight back, which is what makes tier 1 trustworthy. But a failed
+read-back does **not** mean the selection failed to apply: Electron reports a stale range
+and then honours the selection anyway. Falling through to the backspace tier then starts
+deleting into a field where the word is still selected, so the first backspace removes the
+whole word and every later one eats a character that should have survived —
+"im completely shocked" became "im compl🤯", thirteen characters gone for a seven-character
+word, 7 + 6. The backspace tier now collapses the selection to a bare caret first.
+
+**Synthesized keystrokes must be paced, and paced off the main queue.** Posted back to back
+with no gap, backspaces are silently dropped by Chromium/Electron text areas — the same
+word replaced correctly one minute and lost three characters the next, which is the
+signature of a race rather than a miscount. Rich-text editors apply each keystroke through
+an async state update, so the sequence has to be paced to the editor rather than fired at
+CPU speed. It cannot be paced on the main queue, though: the event tap's callback runs on
+the main run loop, so sleeping there stalls the tap and trips
+`kCGEventTapDisabledByTimeout`. The sequence goes out on a serial background queue instead.
+
 **Terminals lie differently.** Their `AXTextArea` is the scrollback, not the input line —
 setting a selection succeeds, but typed characters go to the tty, so the emoji lands beside
 the word instead of replacing it. Terminals skip AX writes entirely.
