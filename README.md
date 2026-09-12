@@ -25,8 +25,24 @@ System Settings → Keyboard → "Press fn key to" → **Do Nothing**.
 (The app detects it if you don't, and says so in its ☀️ menu rather than failing silently.)
 
 Type a word, tap `fn` — or **Right ⌘** — then `←` `→` to choose, Enter to accept,
-`1`–`3` to jump straight to one, Esc to dismiss. The chevron opens the full Character Viewer.
+`1`–`3` to jump straight to one, Esc to dismiss. The chevron, `↓`, or a second `fn` tap
+opens the full emoji picker at the caret, the way Sonoma's does.
 Command-key shortcuts pass through without dismissing the pill, so `⌘⇧4` can screenshot it.
+
+## Custom words
+
+☀️ menu → **Edit Custom Words…** pins your own word → emoji pairs, up to three emoji each.
+They rank ahead of both the bundled tuning and generic scoring, and apply on the next `fn`
+tap without a relaunch. Deleting one falls straight back to standard behaviour.
+
+They live in `~/Library/Application Support/Emojintel/user-words.json`, deliberately not in
+the app bundle: the bundle is code-signed and the Accessibility grant is pinned to that
+signature, so writing inside it would break the seal and silently revoke the grant — the
+exact failure `make cert` exists to prevent. It also means pins survive `make install`,
+which does `rm -rf` on the bundle. The file uses the same shape as `overrides.json`, so a
+pin that turns out to be generally right rather than personal can be promoted by copying
+the line across. A pinned emoji doesn't have to be in the bundled index at all — 🕊️ isn't,
+and pins it fine.
 
 ## What was hard
 
@@ -82,6 +98,30 @@ those are identified by Chromium's ANGLE/SwiftShader dylibs instead. The union o
 markers catches all of them and still rejects Safari, Notes, Finder and Terminal. One more
 wrinkle: the tree is built *asynchronously* after the flag is set, so the tap that switches
 it on generally finds nothing and the next one works. The log says so when that happens.
+
+**An invisible menu bar is load-bearing.** `LSUIElement` apps never display a menu bar, so
+it's tempting to skip `NSApp.mainMenu` entirely — but AppKit still routes key equivalents
+through it, and without an Edit menu `⌘V` does nothing in a text field. Pasting is the main
+way an emoji reaches the custom-words editor, so the app builds a menu nobody can see.
+
+**The Character Viewer reports nothing back.** `orderFrontCharacterPalette` has no delegate,
+no completion handler and no notification — it inserts into the first responder and tells
+the app nothing. So "choose an emoji for this row" can't be implemented as a picker that
+returns a value; it's implemented as aiming the insertion at the right field, selecting its
+contents first so the pick replaces rather than appends. The editor's emoji cells filter
+typed text live for the same reason: the field must stay editable for the palette to reach
+it, which otherwise leaves it open to someone typing a word into it.
+
+**...and it opens in the *calling* app's context, which for a menu-bar app is nowhere.**
+`orderFrontCharacterPalette` from the pill appears to work — the picker opens — but every
+emoji picked lands nowhere, because the palette belongs to Emojintel, an accessory app with
+no focused text field. The identical call works perfectly from the custom-words editor,
+where we really are the active app with a field focused; whether it works depends entirely
+on who is frontmost. Opening the picker *for the app you're typing in* means synthesizing
+the system-wide "Show Emoji & Symbols" shortcut (⌃⌘Space) instead, so that app opens its
+own picker at its own caret. That shortcut is symbolic hotkey 179, and it can be switched
+off in System Settings — an absent plist entry means the default, which is on, so only an
+explicit `enabled = 0` counts as off. The ☀️ menu says so when it is.
 
 **Mail needs a completely different API.** Its compose area is an `AXWebArea` with no
 `AXSelectedTextRange` at all; WebKit uses opaque text markers

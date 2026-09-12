@@ -14,6 +14,11 @@ struct EmojiHit {
 /// through to normal scoring.
 final class EmojiIndex {
 
+    /// How many suggestions the pill shows. Lives here because two places depend on it and
+    /// must agree: the coordinator asks for this many, and the custom-words editor refuses
+    /// to store more than this many per word — anything beyond it could never be displayed.
+    static let maxSuggestions = 3
+
     private struct Entry: Decodable {
         let e: String        // emoji
         let l: String        // label
@@ -25,6 +30,7 @@ final class EmojiIndex {
     private var entries: [Entry] = []
     private var byKeyword: [String: [(idx: Int, score: Int)]] = [:]
     private var overrides: [String: [String]] = [:]
+    private var userWords: [String: [String]] = [:]
     private var labelFor: [String: String] = [:]
 
     /// Function words appear inside emoji labels ("rolling on THE floor laughing",
@@ -56,7 +62,12 @@ final class EmojiIndex {
                 if let list = v as? [String] { overrides[k.lowercased()] = list }
             }
         }
+        userWords = UserWords.load()
     }
+
+    /// Re-reads the personal list, so edits from the ☀️ menu take effect on the next
+    /// trigger rather than on the next launch.
+    func reloadUserWords() { userWords = UserWords.load() }
 
     private func buildIndex() {
         var acc: [String: [Int: Int]] = [:]                 // keyword -> idx -> best score
@@ -91,13 +102,15 @@ final class EmojiIndex {
     func suggestions(for word: String, limit: Int = 3) -> [EmojiHit] {
         let w = word.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !w.isEmpty else { return [] }
-        // Stopwords are skipped unless explicitly pinned in overrides.json ("no" -> ❌).
-        if Self.stopwords.contains(w), overrides[w] == nil { return [] }
+        // Stopwords are skipped unless explicitly pinned ("no" -> ❌). A personal pin counts:
+        // deciding "me" should mean 🙋 is exactly the kind of call this list shouldn't veto.
+        if Self.stopwords.contains(w), overrides[w] == nil, userWords[w] == nil { return [] }
 
         var out: [EmojiHit] = []
         var seen = Set<String>()
 
-        for emoji in overrides[w] ?? [] where !seen.contains(emoji) {
+        // Personal pins first, then the bundled tuning, then generic scoring.
+        for emoji in (userWords[w] ?? []) + (overrides[w] ?? []) where !seen.contains(emoji) {
             seen.insert(emoji)
             out.append(EmojiHit(emoji: emoji, label: labelFor[emoji] ?? w))
             if out.count == limit { return out }
@@ -118,4 +131,5 @@ final class EmojiIndex {
 
     var count: Int { entries.count }
     var overrideCount: Int { overrides.count }
+    var userWordCount: Int { userWords.count }
 }

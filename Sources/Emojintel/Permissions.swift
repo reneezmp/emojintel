@@ -37,6 +37,25 @@ enum Permissions {
         }
     }
 
+    /// Symbolic hotkey 179 is "Show Emoji & Symbols" (⌃⌘Space by default). `↓` and a second
+    /// `fn` tap open the picker by synthesizing that shortcut — an accessory app can't open
+    /// it on another app's behalf — so if the user has switched it off, those do nothing.
+    ///
+    /// An ABSENT entry means the factory default, which is on; only an explicit `enabled`
+    /// of false counts as off. The flag is written as a boolean by some macOS versions and
+    /// as 0/1 by others, so both are read.
+    static var emojiHotkeyEnabled: Bool {
+        guard let all = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString,
+                                                  "com.apple.symbolichotkeys" as CFString)
+                as? [String: Any],
+              let entry = all["179"] as? [String: Any],
+              let flag = entry["enabled"]
+        else { return true }
+        if let b = flag as? Bool { return b }
+        if let n = flag as? Int { return n != 0 }
+        return true
+    }
+
     static func openKeyboardSettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!
         NSWorkspace.shared.open(url)

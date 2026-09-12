@@ -32,12 +32,18 @@ final class Coordinator {
         trigger.onCommit     = { [weak self] in self?.commit() }
         trigger.onDismiss    = { [weak self] in self?.dismiss() }
         trigger.onSelectIndex = { [weak self] i in self?.select(i) }
+        trigger.onOpenPalette = { [weak self] in self?.openCharacterPalette() }
 
         panel.onPick = { [weak self] i in self?.select(i) }
-        panel.onChevron = { [weak self] in
-            self?.dismiss()
-            NSApp.orderFrontCharacterPalette(nil)   // the chevron opens the full picker
-        }
+        panel.onChevron = { [weak self] in self?.openCharacterPalette() }
+    }
+
+    /// The chevron, `↓`, and a second `fn` tap are all the same gesture: give up on the
+    /// three suggestions and go to the full picker. Dismissing first matters — the picker
+    /// opens where the caret is, and the pill must not be in the way.
+    private func openCharacterPalette() {
+        dismiss()
+        WordReplacer.openEmojiPicker()
     }
 
     @discardableResult
@@ -89,7 +95,7 @@ final class Coordinator {
             path = ctx.readPath
         }
 
-        let suggestions = index.suggestions(for: word, limit: 3)
+        let suggestions = index.suggestions(for: word, limit: EmojiIndex.maxSuggestions)
         guard !suggestions.isEmpty else {
             Diagnostics.log("[\(appName)] \(role) — \"\(word)\" → no suggestions"); return
         }

@@ -18,7 +18,7 @@ final class KeyTrigger {
 
     static let kFn: Int64 = 63
     static let kRightCmd: Int64 = 54
-    static let kLeft: Int64 = 123, kRight: Int64 = 124
+    static let kLeft: Int64 = 123, kRight: Int64 = 124, kDown: Int64 = 125
     static let kReturn: Int64 = 36, kEscape: Int64 = 53, kTab: Int64 = 48
     static let digits: [Int64: Int] = [18: 0, 19: 1, 20: 2, 21: 3, 23: 4]   // 1...5
 
@@ -28,16 +28,24 @@ final class KeyTrigger {
     var onCommit: (() -> Void)?
     var onDismiss: (() -> Void)?
     var onSelectIndex: ((Int) -> Void)?
+    var onOpenPalette: (() -> Void)?      // ↓ — same action as clicking the chevron
 
     /// Read by the callback to decide whether to swallow navigation keys.
     var pillIsOpen = false
     private(set) var isPaused = false
+
+    /// A second tap of the same trigger key inside this window means "skip the suggestions,
+    /// give me the whole picker", the way Sonoma's own does. The first tap still fires
+    /// immediately, so single-tap latency is unchanged — the second simply supersedes it.
+    static let doubleTapWindow: CFAbsoluteTime = 0.4
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var lastFlags: CGEventFlags = []
     private var armed: Int64?
     private var watchdog: Timer?
+    private var lastTapAt: CFAbsoluteTime = 0
+    private var lastTapKey: Int64 = -1
 
     // MARK: - Lifecycle
 
@@ -108,8 +116,19 @@ final class KeyTrigger {
                 armed = (kc == Self.kFn || kc == Self.kRightCmd) ? kc : nil
             } else {
                 if let a = armed, a == kc {
-                    let trigger: Trigger = (kc == Self.kFn) ? .fn : .rightCommand
-                    DispatchQueue.main.async { [weak self] in self?.onTrigger?(trigger) }
+                    // CFAbsoluteTimeGetCurrent is a cheap read; this is still the callback,
+                    // so nothing heavier than arithmetic belongs here.
+                    let now = CFAbsoluteTimeGetCurrent()
+                    let isDouble = kc == lastTapKey && now - lastTapAt < Self.doubleTapWindow
+                    lastTapKey = kc
+                    lastTapAt = isDouble ? 0 : now   // a third tap starts over, not another double
+
+                    if isDouble {
+                        DispatchQueue.main.async { [weak self] in self?.onOpenPalette?() }
+                    } else {
+                        let trigger: Trigger = (kc == Self.kFn) ? .fn : .rightCommand
+                        DispatchQueue.main.async { [weak self] in self?.onTrigger?(trigger) }
+                    }
                 }
                 armed = nil
             }
@@ -131,6 +150,9 @@ final class KeyTrigger {
             return nil
         case Self.kRight, Self.kTab:
             DispatchQueue.main.async { [weak self] in self?.onNavigate?(1) }
+            return nil
+        case Self.kDown:
+            DispatchQueue.main.async { [weak self] in self?.onOpenPalette?() }
             return nil
         case Self.kReturn:
             DispatchQueue.main.async { [weak self] in self?.onCommit?() }

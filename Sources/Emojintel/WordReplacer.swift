@@ -69,10 +69,27 @@ enum WordReplacer {
         return "marker-backspace"
     }
 
+    /// Opens the system emoji picker **in the frontmost app**.
+    ///
+    /// Not `NSApp.orderFrontCharacterPalette`: that opens the Character Viewer owned by
+    /// Emojintel, and Emojintel is an accessory app with no focused text field — so the
+    /// palette appears, and every emoji picked from it has nowhere to go. (It works fine
+    /// from the custom-words editor, because there we genuinely are the active app with a
+    /// text field focused. Same call, opposite outcome, depending on who's frontmost.)
+    ///
+    /// Synthesizing the system-wide "Show Emoji & Symbols" shortcut instead makes the app
+    /// you're actually typing in open its own picker, so the insertion lands at the caret.
+    /// That shortcut can be switched off in System Settings, which would make this do
+    /// nothing — `Permissions.emojiHotkeyEnabled` detects it and the ☀️ menu says so.
+    static func openEmojiPicker() {
+        postKey(kSpace, flags: [.maskControl, .maskCommand])
+    }
+
     // MARK: - Synthesized input
 
     private static let kRightArrow: CGKeyCode = 0x7C
     private static let kBackspace: CGKeyCode = 0x33
+    private static let kSpace: CGKeyCode = 0x31
 
     private static func postUnicode(_ s: String) {
         guard let src = CGEventSource(stateID: .combinedSessionState),
