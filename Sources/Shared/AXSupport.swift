@@ -99,18 +99,69 @@ func axStringForRange(_ element: AXUIElement, range: CFRange) -> String? {
 /// Chromium/Electron expose nothing over AX until this is set. Native apps don't need it,
 /// and we deliberately never set AXEnhancedUserInterface — that's the flag VoiceOver
 /// sets, and it causes window-resize glitches in AppKit apps.
-private var manualAccessDone = Set<pid_t>()
+private var manualAccessChecked = Set<pid_t>()
 
-func enableManualAccessibility(for pid: pid_t, bundleID: String?) {
-    guard let id = bundleID, !manualAccessDone.contains(pid) else { return }
-    let electronish = ["com.google.Chrome", "com.microsoft.VSCode", "com.microsoft.Edge",
-                       "com.brave.Browser", "com.tinyspeck.slackmacgap", "com.hnc.Discord",
-                       "com.microsoft.edgemac", "com.microsoft.edgemac.Dev",
-                       "com.google.Chrome.canary", "org.chromium.Chromium",
-                       "com.spotify.client", "com.figma.Desktop", "notion.id"]
-    guard electronish.contains(id) || id.hasPrefix("com.electron") else { return }
-    manualAccessDone.insert(pid)
+/// True when we enabled Chromium AX on the most recent lookup — meaning the tree was only
+/// just asked for and may not have been built yet. Purely diagnostic; see Coordinator.
+private(set) var chromiumAXJustEnabled = false
+
+/// Whether the app bundle is Chromium-based: Chrome/Edge proper, Electron, or CEF.
+///
+/// FINDING: this used to be a hardcoded bundle-ID allowlist, which silently failed for
+/// every app not on it — and the failure is indistinguishable from "there is no text
+/// field here". Claude for Desktop (com.anthropic.claudefordesktop) logged 35 consecutive
+/// "no focused element" before this was tracked down. Chromium is detected structurally
+/// instead, by what the bundle actually ships. Probed across this machine's apps:
+///
+///     app                          renderer helper          Chromium GL libs
+///     Claude, Obsidian (Electron)  top of Frameworks/       ✓
+///     Microsoft Edge (Chromium)    nested in .framework     ✓
+///     ChatGPT (Chromium)           — (named differently)    ✓
+///     zoom.us (CEF)                top of Frameworks/       —
+///     Safari, Notes (native)       —                        —
+///
+/// Neither marker alone covers every Chromium app; the union covers all of them and still
+/// rejects the native ones. Same lesson as the role whitelist: ask what the thing *is*,
+/// not whether it's on a list we remembered to update.
+func isChromiumBased(_ app: NSRunningApplication) -> Bool {
+    let fm = FileManager.default
+    guard let frameworks = app.bundleURL?.appendingPathComponent("Contents/Frameworks"),
+          let entries = try? fm.contentsOfDirectory(atPath: frameworks.path)
+    else { return false }
+
+    // Electron and CEF put the renderer helper straight into Frameworks/.
+    if entries.contains(where: { $0.hasSuffix("Helper (Renderer).app") }) { return true }
+
+    // Chrome, Edge and ChatGPT bury their helpers inside "<Name> Framework.framework",
+    // under a version directory, and name them inconsistently. That framework always
+    // carries Chromium's ANGLE/SwiftShader dylibs, which is the dependable marker.
+    for entry in entries where entry.hasSuffix(".framework") {
+        let versions = frameworks.appendingPathComponent("\(entry)/Versions")
+        guard let vs = try? fm.contentsOfDirectory(atPath: versions.path) else { continue }
+        for v in vs {
+            let libs = versions.appendingPathComponent("\(v)/Libraries")
+            guard let names = try? fm.contentsOfDirectory(atPath: libs.path) else { continue }
+            if names.contains("libGLESv2.dylib") || names.contains("libvk_swiftshader.dylib") {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/// Sets AXManualAccessibility on Chromium-based apps, at most once per pid.
+///
+/// The bundle probe touches the filesystem, so it is memoized for misses as well as hits —
+/// and like every other AX call here it runs off the event-tap callback, where the latency
+/// would risk kCGEventTapDisabledByTimeout.
+func enableManualAccessibility(for app: NSRunningApplication) {
+    let pid = app.processIdentifier
+    chromiumAXJustEnabled = false
+    guard !manualAccessChecked.contains(pid) else { return }
+    manualAccessChecked.insert(pid)          // remember the miss too, not just the hit
+    guard isChromiumBased(app) else { return }
     AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), AXAttr.manualAccess, kCFBooleanTrue)
+    chromiumAXJustEnabled = true
 }
 
 /// Finds the focused text element.
@@ -120,8 +171,7 @@ func enableManualAccessibility(for pid: pid_t, bundleID: String?) {
 /// PRIMARY route, not the fallback. (The original spec had this the other way around.)
 func focusedTextElement(descendLimit: Int = 5) -> (element: AXUIElement, role: String, route: String)? {
     let front = NSWorkspace.shared.frontmostApplication
-    if let front { enableManualAccessibility(for: front.processIdentifier,
-                                             bundleID: front.bundleIdentifier) }
+    if let front { enableManualAccessibility(for: front) }
 
     var focused: AXUIElement?
     var route = ""

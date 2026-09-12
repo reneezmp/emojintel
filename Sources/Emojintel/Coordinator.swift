@@ -59,7 +59,10 @@ final class Coordinator {
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
 
         guard let (element, role, route) = focusedTextElement() else {
-            Diagnostics.log("[\(appName)] no focused element"); return
+            // Chromium builds its AX tree asynchronously once AXManualAccessibility is set,
+            // so the tap that switches it on can still land before the tree exists.
+            let hint = chromiumAXJustEnabled ? "  (Chromium AX just enabled — tap again)" : ""
+            Diagnostics.log("[\(appName)] no focused element\(hint)"); return
         }
 
         let word: String

@@ -36,6 +36,14 @@ enum FocusProbe {
         let pid = front.processIdentifier
         print("── [\(name)] pid \(pid) ──────────────────────────────")
 
+        // Chromium-based apps expose nothing over AX until AXManualAccessibility is set, so
+        // the probe must do exactly what the app does or it reports a failure that isn't real.
+        if isChromiumBased(front) {
+            enableManualAccessibility(for: front)
+            print("   Chromium-based bundle → AXManualAccessibility set"
+                + (chromiumAXJustEnabled ? " (just now; tree may still be building)" : " (already)"))
+        }
+
         // Route 1: system-wide element → AXFocusedUIElement
         let system = AXUIElementCreateSystemWide()
         report("systemwide.AXFocusedUIElement", copyRaw(system, "AXFocusedUIElement"))

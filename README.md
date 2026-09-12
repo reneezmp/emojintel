@@ -11,7 +11,7 @@ Built for **Rosy** (MacBook10,1, Ventura 13.7.8), the last macOS this machine of
 
 **Working.** Confirmed on Ventura 13.7.8 in Notes, TextEdit, Stickies, Mail, Messages,
 Reminders, Finder, Spotlight, System Settings, Safari (address bar and page fields),
-Terminal, Discord, Edge, and Electron apps.
+Terminal, Discord, Edge, Osaurus, Claude for Desktop, and Electron apps generally.
 
 ## Install
 
@@ -68,6 +68,20 @@ the word instead of replacing it. Terminals skip AX writes entirely.
 
 **Electron returns a fake rect,** `(0, 800, 0x0)`, rather than failing. Caret rects are
 validated for size and on-screen-ness, not merely non-nil.
+
+**A bundle-ID allowlist silently excludes every app you didn't think of.** Chromium exposes
+nothing over AX until `AXManualAccessibility` is set on the app element, and the gate for
+that was once a hardcoded list of bundle IDs. Any Electron app missing from it failed at
+the very first step, logging a line indistinguishable from "there's no text field here" —
+Claude for Desktop racked up 35 consecutive `no focused element` before this was found.
+Chromium is now detected structurally, by what the bundle actually ships, and neither
+obvious marker suffices alone: Electron and CEF put `Helper (Renderer).app` at the top of
+`Contents/Frameworks`, while Chrome, Edge and ChatGPT bury their helpers inside
+`<Name> Framework.framework` under a version directory and name them inconsistently —
+those are identified by Chromium's ANGLE/SwiftShader dylibs instead. The union of both
+markers catches all of them and still rejects Safari, Notes, Finder and Terminal. One more
+wrinkle: the tree is built *asynchronously* after the flag is set, so the tap that switches
+it on generally finds nothing and the next one works. The log says so when that happens.
 
 **Mail needs a completely different API.** Its compose area is an `AXWebArea` with no
 `AXSelectedTextRange` at all; WebKit uses opaque text markers
